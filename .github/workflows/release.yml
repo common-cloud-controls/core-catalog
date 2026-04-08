@@ -4,45 +4,59 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v2026.04.rc-1)'
+        required: true
 
 jobs:
+  build-toolkit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: common-cloud-controls/delivery-toolkit
+          ref: main
+          path: toolkit
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: toolkit/go.mod
+          cache-dependency-path: toolkit/go.sum
+
+      - name: Build ccc
+        run: go build -o toolkit/ccc .
+        working-directory: toolkit
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ccc-binary
+          path: toolkit/ccc
+
   release:
+    needs: build-toolkit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Check for changes since last release
-        id: changes
-        run: |
-          PREV_TAG=$(git describe --abbrev=0 --tags HEAD^ 2>/dev/null || echo "")
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag — including core catalog in first release"
-            echo "changed=true" >> $GITHUB_OUTPUT
-          elif git log "${PREV_TAG}..HEAD" --oneline -- . | grep -q .; then
-            echo "Changes detected since ${PREV_TAG}"
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "No changes since ${PREV_TAG} — skipping"
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Get app token
-        if: steps.changes.outputs.changed == 'true'
-        uses: actions/create-github-app-token@v3
-        id: app-token
+      - uses: actions/download-artifact@v4
         with:
-          app-id: ${{ secrets.CCC_BOT_APP_ID }}
-          private-key: ${{ secrets.CCC_BOT_PRIVATE_KEY }}
-          owner: common-cloud-controls
-          repositories: common-cloud-controls.github.io
+          name: ccc-binary
+          path: ${{ runner.temp }}/ccc-bin
+
+      - name: Make binary executable
+        run: chmod +x ${{ runner.temp }}/ccc-bin/ccc
 
       - name: Release and publish
-        if: steps.changes.outputs.changed == 'true'
         uses: common-cloud-controls/delivery-toolkit@main
         with:
           type: all
           path: core/ccc
           title: Core
-          token: ${{ steps.app-token.outputs.token }}
+          tag: ${{ inputs.tag || github.ref_name }}
+          app-id: ${{ secrets.CCC_BOT_APP_ID }}
+          private-key: ${{ secrets.CCC_BOT_PRIVATE_KEY }}
+          binary: ${{ runner.temp }}/ccc-bin/ccc
