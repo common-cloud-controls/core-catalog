@@ -122,7 +122,7 @@ Service catalogs reference core entries by ID using the `imports` key:
 
 ```yaml
 imports:
-  - reference-id: CCC
+  - reference-id: CCC.Core
     entries:
       - reference-id: CCC.Core.CP01
         remarks: Encryption in Transit Enabled by Default
